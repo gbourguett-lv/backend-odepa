@@ -157,7 +157,12 @@ function classifyError(err: unknown): { cls: ErrorClass; message: string } {
     }
 
     // Auth / permission errors
-    if (msg.includes('unauthorized') || msg.includes('forbidden') || msg.includes('401') || msg.includes('403')) {
+    if (
+      msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
+      msg.includes('401') ||
+      msg.includes('403')
+    ) {
       return { cls: 'auth', message: err.message };
     }
 
@@ -167,7 +172,7 @@ function classifyError(err: unknown): { cls: ErrorClass; message: string } {
   return { cls: 'unknown', message: String(err) };
 }
 
-const errorHandler: ErrorHandler = ({ error }) => {
+const errorHandler: ErrorHandler = (error) => {
   const { cls, message } = classifyError(error);
 
   switch (cls) {

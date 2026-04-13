@@ -1,5 +1,6 @@
 import { tool, jsonSchema } from 'ai';
 import { supabase, TABLE, T_MERCADOS, T_PRODUCTOS } from '../lib/supabase.js';
+import { cache } from '../lib/cache.js';
 
 const T_VARIEDADES = 'variedades' as const;
 
@@ -143,13 +144,25 @@ export const tools = {
       },
     }),
     execute: async ({ search }) => {
+      // Cache only when no search filter (full catalog)
+      if (!search) {
+        const cached = cache.get<{ products: unknown[]; total: number }>('catalog:products');
+        if (cached) return cached;
+      }
+
       let query = supabase.from(T_PRODUCTOS).select('nombre, subsector').order('nombre');
       if (search) query = query.ilike('nombre', `%${search}%`);
 
       const { data, error } = await query;
       if (error) return { error: error.message };
 
-      return { products: data, total: data?.length ?? 0 };
+      const result = { products: data, total: data?.length ?? 0 };
+
+      if (!search) {
+        cache.set('catalog:products', result);
+      }
+
+      return result;
     },
   }),
 
@@ -160,6 +173,9 @@ export const tools = {
       properties: {},
     }),
     execute: async () => {
+      const cached = cache.get<{ markets: unknown[]; total: number }>('catalog:markets');
+      if (cached) return cached;
+
       const { data, error } = await supabase
         .from(T_MERCADOS)
         .select('nombre, region')
@@ -168,7 +184,10 @@ export const tools = {
 
       if (error) return { error: error.message };
 
-      return { markets: data, total: data?.length ?? 0 };
+      const result = { markets: data, total: data?.length ?? 0 };
+      cache.set('catalog:markets', result);
+
+      return result;
     },
   }),
 
@@ -193,6 +212,10 @@ export const tools = {
       required: ['producto'],
     }),
     execute: async ({ producto, solo_con_grupo = false }) => {
+      const cacheKey = `catalog:varieties:${producto}:${solo_con_grupo ? 'grouped' : 'all'}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return cached;
+
       let query = supabase
         .from(T_VARIEDADES)
         .select('variedad_tipo, grupo, registros')
@@ -220,7 +243,7 @@ export const tools = {
         }
       }
 
-      return {
+      const result = {
         producto,
         total_variedades: data.length,
         grupos: Object.entries(grouped).map(([grupo, variedades]) => ({
@@ -230,6 +253,9 @@ export const tools = {
         })),
         sin_grupo: sinGrupo.length > 0 ? sinGrupo : undefined,
       };
+
+      cache.set(cacheKey, result);
+      return result;
     },
   }),
 

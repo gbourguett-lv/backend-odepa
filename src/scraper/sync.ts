@@ -1,5 +1,6 @@
 import { schedule } from 'node-cron';
 import { supabase, TABLE } from '../lib/supabase.js';
+import { cache } from '../lib/cache.js';
 import { downloadExcel, parseExcel } from './odepa.js';
 
 let syncRunning = false;
@@ -121,6 +122,12 @@ export async function runWeeklySync(delayMs = 600): Promise<void> {
       }
 
       await sleep(delayMs);
+    }
+
+    // Invalidate catalog cache since new data was inserted
+    if (total > 0) {
+      cache.invalidate('catalog:');
+      console.log(`[sync] Cache invalidated (catalog:)`);
     }
 
     console.log(`[sync] Weekly sync complete. Total inserted: ${total}`);
