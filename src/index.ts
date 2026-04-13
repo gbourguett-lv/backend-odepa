@@ -1,5 +1,4 @@
 import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -20,10 +19,6 @@ app.route('/api/sync', syncRouter);
 app.route('/api/chat', chatRouter);
 app.route('/api/threads', threadsRouter);
 app.route('/api/profile', profileRouter);
-
-// Serve React build in production
-app.use('*', serveStatic({ root: '../web/dist' }));
-app.get('*', serveStatic({ path: '../web/dist/index.html' }));
 
 const PORT = Number(process.env.PORT ?? 3000);
 
