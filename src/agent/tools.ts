@@ -1,19 +1,16 @@
-import { tool, jsonSchema } from "ai";
-import { supabase, TABLE, T_MERCADOS, T_PRODUCTOS } from "../lib/supabase.js";
+import { tool, jsonSchema } from 'ai';
+import { supabase, TABLE, T_MERCADOS, T_PRODUCTOS } from '../lib/supabase.js';
 
-const T_VARIEDADES = "variedades" as const;
+const T_VARIEDADES = 'variedades' as const;
 
 // Helper: resolve variedad_tipo list from a grupo name
-async function resolveGrupo(
-  producto: string,
-  grupo: string,
-): Promise<string[] | null> {
+async function resolveGrupo(producto: string, grupo: string): Promise<string[] | null> {
   const { data, error } = await supabase
     .from(T_VARIEDADES)
-    .select("variedad_tipo")
-    .ilike("producto", `%${producto}%`)
-    .ilike("grupo", `%${grupo}%`)
-    .eq("activo", true);
+    .select('variedad_tipo')
+    .ilike('producto', `%${producto}%`)
+    .ilike('grupo', `%${grupo}%`)
+    .eq('activo', true);
 
   if (error || !data?.length) return null;
   return data.map((r) => r.variedad_tipo);
@@ -22,7 +19,7 @@ async function resolveGrupo(
 export const tools = {
   query_prices: tool({
     description:
-      "Consulta precios mayoristas de frutas y hortalizas en los mercados de Chile. Filtra por producto, mercado, región, variedad o grupo semántico de variedades.",
+      'Consulta precios mayoristas de frutas y hortalizas en los mercados de Chile. Filtra por producto, mercado, región, variedad o grupo semántico de variedades.',
     inputSchema: jsonSchema<{
       producto: string;
       mercado?: string;
@@ -33,37 +30,37 @@ export const tools = {
       grupo?: string;
       limit?: number;
     }>({
-      type: "object",
+      type: 'object',
       properties: {
         producto: {
-          type: "string",
+          type: 'string',
           description: 'Nombre del producto (ej: "Tomate", "Palta", "Manzana")',
         },
         mercado: {
-          type: "string",
+          type: 'string',
           description: 'Nombre del mercado (ej: "Lo Valledor")',
         },
         region: {
-          type: "string",
+          type: 'string',
           description: 'Nombre de la región (ej: "Metropolitana")',
         },
         fecha_desde: {
-          type: "string",
-          description: "Fecha inicial YYYY-MM-DD",
+          type: 'string',
+          description: 'Fecha inicial YYYY-MM-DD',
         },
-        fecha_hasta: { type: "string", description: "Fecha final YYYY-MM-DD" },
+        fecha_hasta: { type: 'string', description: 'Fecha final YYYY-MM-DD' },
         variedad: {
-          type: "string",
-          description: "Filtrar por variedad específica (búsqueda parcial)",
+          type: 'string',
+          description: 'Filtrar por variedad específica (búsqueda parcial)',
         },
         grupo: {
-          type: "string",
+          type: 'string',
           description:
             'Filtrar por grupo semántico de variedades (ej: "Pulpa blanca", "Zafiro", "Navel"). Incluye automáticamente todas las variedades del grupo.',
         },
-        limit: { type: "number", minimum: 1, maximum: 50, default: 20 },
+        limit: { type: 'number', minimum: 1, maximum: 50, default: 20 },
       },
-      required: ["producto"],
+      required: ['producto'],
     }),
     execute: async ({
       producto,
@@ -78,38 +75,39 @@ export const tools = {
       let query = supabase
         .from(TABLE)
         .select(
-          "fecha,producto,variedad_tipo,mercado,region,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion",
+          'fecha,producto,variedad_tipo,mercado,region,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion'
         )
-        .ilike("producto", `%${producto}%`)
-        .order("fecha", { ascending: false })
+        .ilike('producto', `%${producto}%`)
+        .order('fecha', { ascending: false })
         .limit(limit);
 
-      if (mercado) query = query.ilike("mercado", `%${mercado}%`);
-      if (region) query = query.ilike("region", `%${region}%`);
-      if (fecha_desde) query = query.gte("fecha", fecha_desde);
-      if (fecha_hasta) query = query.lte("fecha", fecha_hasta);
+      if (mercado) query = query.ilike('mercado', `%${mercado}%`);
+      if (region) query = query.ilike('region', `%${region}%`);
+      if (fecha_desde) query = query.gte('fecha', fecha_desde);
+      if (fecha_hasta) query = query.lte('fecha', fecha_hasta);
 
       // grupo takes precedence over variedad
       if (grupo) {
         const variedades = await resolveGrupo(producto, grupo);
         if (!variedades) {
-          return { message: `No se encontró el grupo "${grupo}" para "${producto}". Usá get_varieties para ver los grupos disponibles.` };
+          return {
+            message: `No se encontró el grupo "${grupo}" para "${producto}". Usá get_varieties para ver los grupos disponibles.`,
+          };
         }
-        query = query.in("variedad_tipo", variedades);
+        query = query.in('variedad_tipo', variedades);
       } else if (variedad) {
-        query = query.ilike("variedad_tipo", `%${variedad}%`);
+        query = query.ilike('variedad_tipo', `%${variedad}%`);
       }
 
       const { data, error } = await query;
       if (error) return { error: error.message };
-      if (!data?.length)
-        return { message: `No se encontraron registros para "${producto}"` };
+      if (!data?.length) return { message: `No se encontraron registros para "${producto}"` };
 
       return {
         total: data.length,
         registros: data.map((r) => ({
           fecha: r.fecha,
-          variedad: r.variedad_tipo ?? "-",
+          variedad: r.variedad_tipo ?? '-',
           min: r.precio_minimo,
           max: r.precio_maximo,
           prom: r.precio_promedio_ponderado,
@@ -120,23 +118,19 @@ export const tools = {
   }),
 
   get_products: tool({
-    description:
-      "Lista todos los productos disponibles en la base de datos de ODEPA.",
+    description: 'Lista todos los productos disponibles en la base de datos de ODEPA.',
     inputSchema: jsonSchema<{ search?: string }>({
-      type: "object",
+      type: 'object',
       properties: {
         search: {
-          type: "string",
-          description: "Filtrar productos por nombre parcial",
+          type: 'string',
+          description: 'Filtrar productos por nombre parcial',
         },
       },
     }),
     execute: async ({ search }) => {
-      let query = supabase
-        .from(T_PRODUCTOS)
-        .select("nombre, subsector")
-        .order("nombre");
-      if (search) query = query.ilike("nombre", `%${search}%`);
+      let query = supabase.from(T_PRODUCTOS).select('nombre, subsector').order('nombre');
+      if (search) query = query.ilike('nombre', `%${search}%`);
 
       const { data, error } = await query;
       if (error) return { error: error.message };
@@ -146,18 +140,17 @@ export const tools = {
   }),
 
   get_markets: tool({
-    description:
-      "Lista todos los mercados mayoristas disponibles con su región.",
+    description: 'Lista todos los mercados mayoristas disponibles con su región.',
     inputSchema: jsonSchema<Record<string, never>>({
-      type: "object",
+      type: 'object',
       properties: {},
     }),
     execute: async () => {
       const { data, error } = await supabase
         .from(T_MERCADOS)
-        .select("nombre, region")
-        .eq("activo", true)
-        .order("region");
+        .select('nombre, region')
+        .eq('activo', true)
+        .order('region');
 
       if (error) return { error: error.message };
 
@@ -172,35 +165,33 @@ export const tools = {
       producto: string;
       solo_con_grupo?: boolean;
     }>({
-      type: "object",
+      type: 'object',
       properties: {
         producto: {
-          type: "string",
-          description: "Nombre del producto",
+          type: 'string',
+          description: 'Nombre del producto',
         },
         solo_con_grupo: {
-          type: "boolean",
-          description:
-            "Si es true, devuelve solo variedades que tienen grupo asignado",
+          type: 'boolean',
+          description: 'Si es true, devuelve solo variedades que tienen grupo asignado',
         },
       },
-      required: ["producto"],
+      required: ['producto'],
     }),
     execute: async ({ producto, solo_con_grupo = false }) => {
       let query = supabase
         .from(T_VARIEDADES)
-        .select("variedad_tipo, grupo, registros")
-        .ilike("producto", `%${producto}%`)
-        .eq("activo", true)
-        .order("grupo", { ascending: true })
-        .order("variedad_tipo", { ascending: true });
+        .select('variedad_tipo, grupo, registros')
+        .ilike('producto', `%${producto}%`)
+        .eq('activo', true)
+        .order('grupo', { ascending: true })
+        .order('variedad_tipo', { ascending: true });
 
-      if (solo_con_grupo) query = query.not("grupo", "is", null);
+      if (solo_con_grupo) query = query.not('grupo', 'is', null);
 
       const { data, error } = await query;
       if (error) return { error: error.message };
-      if (!data?.length)
-        return { message: `No hay variedades registradas para "${producto}"` };
+      if (!data?.length) return { message: `No hay variedades registradas para "${producto}"` };
 
       // Group by grupo for a cleaner response
       const grouped: Record<string, string[]> = {};
@@ -240,32 +231,43 @@ export const tools = {
       variedad?: string;
       grupo?: string;
     }>({
-      type: "object",
+      type: 'object',
       properties: {
-        producto: { type: "string", description: "Nombre del producto" },
-        mercado: { type: "string", description: "Nombre del mercado (opcional)" },
-        fecha_desde: { type: "string", description: "Fecha inicio YYYY-MM-DD (alternativa a dias)" },
-        fecha_hasta: { type: "string", description: "Fecha fin YYYY-MM-DD (alternativa a dias)" },
+        producto: { type: 'string', description: 'Nombre del producto' },
+        mercado: { type: 'string', description: 'Nombre del mercado (opcional)' },
+        fecha_desde: {
+          type: 'string',
+          description: 'Fecha inicio YYYY-MM-DD (alternativa a dias)',
+        },
+        fecha_hasta: { type: 'string', description: 'Fecha fin YYYY-MM-DD (alternativa a dias)' },
         dias: {
-          type: "number",
+          type: 'number',
           minimum: 7,
           maximum: 365,
           default: 30,
-          description: "Días hacia atrás desde hoy (si no se especifican fechas)",
+          description: 'Días hacia atrás desde hoy (si no se especifican fechas)',
         },
         variedad: {
-          type: "string",
-          description: "Filtrar por variedad específica (búsqueda parcial)",
+          type: 'string',
+          description: 'Filtrar por variedad específica (búsqueda parcial)',
         },
         grupo: {
-          type: "string",
+          type: 'string',
           description:
             'Filtrar por grupo semántico (ej: "Pulpa blanca", "Navel"). Incluye todas las variedades del grupo automáticamente.',
         },
       },
-      required: ["producto"],
+      required: ['producto'],
     }),
-    execute: async ({ producto, mercado, fecha_desde, fecha_hasta, dias = 30, variedad, grupo }) => {
+    execute: async ({
+      producto,
+      mercado,
+      fecha_desde,
+      fecha_hasta,
+      dias = 30,
+      variedad,
+      grupo,
+    }) => {
       // Resolve date range
       let desde = fecha_desde;
       let hasta = fecha_hasta;
@@ -291,19 +293,21 @@ export const tools = {
 
       let query = supabase
         .from(TABLE)
-        .select("fecha,variedad_tipo,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion,volumen")
-        .ilike("producto", `%${producto}%`)
-        .gte("fecha", desde)
-        .lte("fecha", hasta)
-        .order("fecha", { ascending: true })
+        .select(
+          'fecha,variedad_tipo,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion,volumen'
+        )
+        .ilike('producto', `%${producto}%`)
+        .gte('fecha', desde)
+        .lte('fecha', hasta)
+        .order('fecha', { ascending: true })
         .limit(2000);
 
-      if (mercado) query = query.ilike("mercado", `%${mercado}%`);
+      if (mercado) query = query.ilike('mercado', `%${mercado}%`);
 
       if (variedadesDelGrupo) {
-        query = query.in("variedad_tipo", variedadesDelGrupo);
+        query = query.in('variedad_tipo', variedadesDelGrupo);
       } else if (variedad) {
-        query = query.ilike("variedad_tipo", `%${variedad}%`);
+        query = query.ilike('variedad_tipo', `%${variedad}%`);
       }
 
       const { data, error } = await query;
@@ -312,7 +316,14 @@ export const tools = {
         return { message: `Sin datos de tendencia para "${producto}" entre ${desde} y ${hasta}` };
 
       // Aggregate by (ISO week, variedad_tipo) to keep tokens minimal
-      type Agg = { minSum: number; maxSum: number; promSum: number; count: number; volSum: number; unit: string };
+      type Agg = {
+        minSum: number;
+        maxSum: number;
+        promSum: number;
+        count: number;
+        volSum: number;
+        unit: string;
+      };
       const byWeekVariety = new Map<string, Agg>();
 
       for (const r of data) {
@@ -322,20 +333,27 @@ export const tools = {
         const weekStart = new Date(d);
         weekStart.setUTCDate(d.getUTCDate() - day + 1);
         const week = weekStart.toISOString().slice(0, 10);
-        const variety = (r.variedad_tipo ?? "Sin variedad").trim() || "Sin variedad";
+        const variety = (r.variedad_tipo ?? 'Sin variedad').trim() || 'Sin variedad';
         const key = `${week}||${variety}`;
 
-        const prev = byWeekVariety.get(key) ?? { minSum: 0, maxSum: 0, promSum: 0, count: 0, volSum: 0, unit: r.unidad_comercializacion ?? "" };
-        prev.minSum  += r.precio_minimo  ?? 0;
-        prev.maxSum  += r.precio_maximo  ?? 0;
+        const prev = byWeekVariety.get(key) ?? {
+          minSum: 0,
+          maxSum: 0,
+          promSum: 0,
+          count: 0,
+          volSum: 0,
+          unit: r.unidad_comercializacion ?? '',
+        };
+        prev.minSum += r.precio_minimo ?? 0;
+        prev.maxSum += r.precio_maximo ?? 0;
         prev.promSum += r.precio_promedio_ponderado ?? 0;
-        prev.volSum  += r.volumen ?? 0;
-        prev.count   += 1;
+        prev.volSum += r.volumen ?? 0;
+        prev.count += 1;
         byWeekVariety.set(key, prev);
       }
 
       const summary = [...byWeekVariety.entries()].map(([key, v]) => {
-        const [week, variety] = key.split("||");
+        const [week, variety] = key.split('||');
         return {
           semana: week,
           variedad: variety,
