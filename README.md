@@ -69,7 +69,7 @@ npm run release:major
 | Método | Ruta | Descripción |
 |---|---|---|
 | `POST` | `/api/sync/weekly` | Sincronización semanal inteligente |
-| `POST` | `/api/sync/backfill` | Backfill desde última fecha en DB |
+| `POST` | `/api/sync` | Backfill desde última fecha en DB |
 
 ### Chat (IA)
 | Método | Ruta | Descripción |
