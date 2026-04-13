@@ -32,3 +32,8 @@ jobs:
 
       - name: Test
         run: npm test
+        env:
+          # Dummy values so Supabase client initializes without crashing.
+          # Unit tests do not make real DB calls.
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
