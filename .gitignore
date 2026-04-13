@@ -35,6 +35,10 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Package manager lock files (use npm — package-lock.json is canonical)
+bun.lock
+yarn.lock
+
 # Yarn
 .yarn/
 !.yarn/releases
