@@ -1,5 +1,10 @@
 import { describe, it, expect } from '@jest/globals';
-import { resolveModelId, buildSystemPromptText, DEFAULT_MODEL, chatRouter } from '../src/routes/chat.js';
+import {
+  resolveModelId,
+  buildSystemPromptText,
+  DEFAULT_MODEL,
+  chatRouter,
+} from '../src/routes/chat.js';
 import { profileRouter } from '../src/routes/profile.js';
 
 // ── 5.1  Model resolution ─────────────────────────────────────────────────────
