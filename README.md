@@ -1,141 +1,183 @@
-# API - Asistente de Precios ODEPA
+# Backend ODEPA — API de Precios de Frutas y Hortalizas
 
-API RESTful para el asistente inteligente de consulta de precios de productos ODEPA.
+API RESTful + scraper automatizado para consulta de precios mayoristas de productos hortofrutícolas publicados por [ODEPA](https://www.odepa.gob.cl). Diseñado para alimentar un asistente conversacional con IA.
 
-## 🚀 Características
+## Stack
 
-- **Chat con IA**: Conversaciones contextuales con memoria persistente usando UUID
-- **Sync Semanal**: Sincronización automática de precios ODEPA sin duplicar datos
-- **Base de Datos**: Supabase para almacenamiento escalable
-- **Validación**: Zod para validación de schemas
+| Tecnología | Versión | Rol |
+|---|---|---|
+| Node.js | >=20 | Runtime |
+| TypeScript | 5.8 | Lenguaje (strict, ESM, NodeNext) |
+| Hono | 4.x | Framework web |
+| Supabase | 2.x | Base de datos + Auth |
+| Vercel AI SDK | 6.x | Integración multi-LLM |
+| node-cron | 4.x | Scheduler del scraper |
+| Jest + ts-jest | 29.x | Testing |
 
-## 📋 Requisitos
+## Requisitos
 
-- Node.js >= 18.x
-- npm o yarn
-- Cuenta en Supabase
-- Variables de entorno configuradas
+- Node.js **>=20**
+- npm
+- Cuenta en [Supabase](https://supabase.com)
+- API keys de los proveedores de IA (ver Variables de Entorno)
 
-## 🔧 Instalación
+## Instalación
 
 ```bash
-cd api
 npm install
+cp .env.example .env   # completar con los valores reales
 ```
 
-### Variables de Entorno
+## Variables de Entorno
 
-Crea un archivo `.env` basado en `.env.example`:
+| Variable | Requerida | Descripción |
+|---|---|---|
+| `SUPABASE_URL` | **SI** | URL del proyecto Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | **SI** | Service role key (NO la anon key) |
+| `ANTHROPIC_API_KEY` | SI (chat) | API key de Anthropic |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | SI (chat) | API key de Google AI Studio |
+| `GROQ_API_KEY` | SI (chat) | API key de Groq |
+| `MINIMAX_API_KEY` | SI (chat) | API key de MiniMax |
+| `ANTHROPIC_MODEL` | No | Default: `claude-haiku-4-5-20251001` |
+| `GEMINI_MODEL` | No | Default: `gemini-2.5-flash` |
+| `MINIMAX_MODEL` | No | Default: `MiniMax-M2.5` |
+| `PORT` | No | Railway lo inyecta automáticamente |
 
-```env
-SUPABASE_URL=tu_url_de_supabase
-SUPABASE_ANON_KEY=tu_anon_key
-ANTHROPIC_API_KEY=tu_api_key
-GROQ_API_KEY=tu_api_key
-```
-
-## 🏃‍♂️ Scripts Disponibles
+## Scripts
 
 ```bash
-# Desarrollo
-npm run dev
-
-# Build para producción
-npm run build
-
-# Iniciar servidor en producción
-npm run start
-
-# Tests
-npm run test
-npm run test:watch
-
-# Linting y formato
-npm run lint
-npm run lint:fix
-npm run format
-npm run format:check
-
-# Versionado y releases
-npm run release
+npm run dev          # Servidor de desarrollo con hot-reload
+npm run build        # Compilar TypeScript → dist/
+npm run start        # Iniciar servidor en producción
+npm test             # Tests con coverage
+npm run test:watch   # Tests en modo watch
+npm run lint         # ESLint
+npm run format       # Prettier
+npm run release      # Nuevo release patch (conventional commits)
 npm run release:minor
 npm run release:major
 ```
 
-## 📡 Endpoints Principales
+## Endpoints
 
-### Chat
-- `POST /api/chat` - Enviar mensaje y obtener respuesta de IA
-- `GET /api/chats/:threadId` - Obtener historial de chat
+### Precios
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/prices` | Listar precios con filtros opcionales |
 
-### Sync
-- `POST /api/sync/weekly` - Ejecutar sync semanal inteligente
-- `POST /api/sync/full` - Ejecutar sync completo
+### Sync / Scraper
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/sync/weekly` | Sincronización semanal inteligente |
+| `POST` | `/api/sync` | Backfill desde última fecha en DB |
 
-### ODEPA
-- `GET /api/odepa` - Obtener precios (con filtros opcionales)
-- `GET /api/odepa/:id` - Obtener precio por ID
+### Chat (IA)
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/chat` | Enviar mensaje, recibir respuesta de IA |
+| `GET` | `/api/threads` | Listar threads del usuario |
 
-## 🧪 Testing
+### Perfil
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/profile` | Obtener perfil del usuario autenticado |
+| `PATCH` | `/api/profile` | Actualizar perfil |
 
-```bash
-# Ejecutar tests con coverage
-npm run test
+> Todos los endpoints de chat, threads y perfil requieren `Authorization: Bearer <token>` (JWT de Supabase).
 
-# Ver reporte HTML de coverage
-open coverage/index.html
-```
+## Scraper
 
-## 📦 Estructura del Proyecto
+El scraper descarga boletines diarios de ODEPA en formato XLSX y los upsertea en Supabase. Se ejecuta **automáticamente al iniciar el servidor** via `node-cron`:
+
+- **Schedule**: Lunes a Viernes, 13:00 UTC (10:00 CLT)
+- **Estrategia**: Backfill inteligente — solo sincroniza días que no existen en DB
+- **Fuente**: `https://www.odepa.gob.cl/wp-content/uploads/...`
+
+## Estructura del Proyecto
 
 ```
 api/
 ├── src/
-│   ├── routes/        # Endpoints de la API
-│   ├── scraper/       # Lógica de scraping
-│   ├── db/            # Configuración de base de datos
-│   ├── utils/         # Utilidades y helpers
-│   └── index.ts       # Punto de entrada
-├── __tests__/         # Tests unitarios e integración
-├── .eslintrc.json     # Configuración ESLint
-├── .prettierrc        # Configuración Prettier
-├── jest.config.js     # Configuración Jest
-├── tsconfig.json      # Configuración TypeScript
+│   ├── routes/          # Un router Hono por dominio
+│   │   ├── chat.ts
+│   │   ├── prices.ts
+│   │   ├── profile.ts
+│   │   ├── sync.ts
+│   │   └── threads.ts
+│   ├── scraper/         # Lógica de scraping y sync
+│   │   ├── odepa.ts     # Download + parse XLSX
+│   │   └── sync.ts      # Scheduler y lógica de sync
+│   ├── agent/           # Tools del agente de IA
+│   ├── middleware/       # Auth middleware
+│   ├── lib/             # Clientes (Supabase)
+│   ├── types.ts
+│   ├── database.types.ts
+│   └── index.ts         # Entry point
+├── __tests__/           # Tests (Jest + ts-jest ESM)
+├── railway.toml         # Configuración de deploy
+├── jest.config.js
+├── tsconfig.json
 └── package.json
 ```
 
-## 🔄 Versionado
+## Deploy (Railway)
 
-Este proyecto usa [Standard Version](https://github.com/conventional-changelog/standard-version) para versionado semántico automático basado en commits convencionales.
+El proyecto incluye `railway.toml` con la configuración lista:
 
-```bash
-# Crear nuevo release (patch)
-npm run release
+```toml
+[build]
+buildCommand = "npm run build"
 
-# Release menor (nuevas features)
-npm run release:minor
-
-# Release mayor (breaking changes)
-npm run release:major
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/api/prices"
 ```
 
-## 📝 Convenciones de Commit
+1. Crear proyecto en [Railway](https://railway.app)
+2. Conectar este repositorio
+3. Configurar las variables de entorno en Railway Dashboard
+4. Deploy automático en cada push a `main`
 
-- `feat:` Nueva funcionalidad
-- `fix:` Corrección de bug
-- `docs:` Cambios en documentación
-- `style:` Formato, faltantes punto y coma, etc.
-- `refactor:` Refactorización de código
-- `test:` Agregar/modificar tests
-- `chore:` Cambios en build process, herramientas auxiliares
+## Workflow de Desarrollo
 
-## 🤝 Contribuir
+```
+main          ← producción (Railway despliega desde acá)
+  └── dev     ← integración (PRs desde feature branches)
+        └── feature/nombre-feature
+```
 
-1. Crear rama desde `dev` (`git checkout -b feature/nueva-funcionalidad`)
-2. Hacer commit (`git commit -m 'feat: agregué nueva funcionalidad'`)
-3. Push a la rama (`git push origin feature/nueva-funcionalidad`)
-4. Abrir Pull Request a `dev`
+```bash
+git checkout dev
+git checkout -b feature/mi-feature
+# ... desarrollar ...
+git push origin feature/mi-feature
+# Abrir PR → dev
+# Una vez aprobado y mergeado a dev → PR dev → main para release
+```
 
-## 📄 Licencia
+## Testing
+
+```bash
+npm test                    # Tests + coverage
+NODE_OPTIONS=--experimental-vm-modules jest --watch   # Watch mode
+```
+
+Tests en `__tests__/` con sufijo `.test.ts`. Framework: Jest 29 + ts-jest (ESM mode).
+
+## Convenciones de Commit
+
+Seguimos [Conventional Commits](https://www.conventionalcommits.org):
+
+| Prefijo | Uso |
+|---|---|
+| `feat:` | Nueva funcionalidad |
+| `fix:` | Corrección de bug |
+| `docs:` | Documentación |
+| `refactor:` | Refactorización sin cambio de comportamiento |
+| `test:` | Tests |
+| `chore:` | Build, dependencias, config |
+| `ci:` | CI/CD |
+
+## Licencia
 
 ISC
