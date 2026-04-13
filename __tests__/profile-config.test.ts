@@ -1,61 +1,24 @@
 import { describe, it, expect } from '@jest/globals';
-import {
-  resolveModelId,
-  checkDailyLimit,
-  buildSystemPromptText,
-  chatRouter,
-} from '../src/routes/chat.js';
+import { resolveModelId, buildSystemPromptText, DEFAULT_MODEL, chatRouter } from '../src/routes/chat.js';
 import { profileRouter } from '../src/routes/profile.js';
 
-// ── 5.1  Free user model restriction ─────────────────────────────────────────
+// ── 5.1  Model resolution ─────────────────────────────────────────────────────
 describe('resolveModelId', () => {
-  it('forces gemini-2.5-flash for free users regardless of requested model', () => {
-    expect(resolveModelId('claude-haiku-4-5', 'free')).toBe('gemini-2.5-flash');
-    expect(resolveModelId('kimi-k2', 'free')).toBe('gemini-2.5-flash');
-    expect(resolveModelId('minimax-m2', 'free')).toBe('gemini-2.5-flash');
+  it('returns the requested model when it is valid', () => {
+    expect(resolveModelId('claude-haiku-4-5')).toBe('claude-haiku-4-5');
+    expect(resolveModelId('gemini-2.5-flash')).toBe('gemini-2.5-flash');
+    expect(resolveModelId('kimi-k2')).toBe('kimi-k2');
+    expect(resolveModelId('minimax-m2')).toBe('minimax-m2');
   });
 
-  it('respects requested model for premium users', () => {
-    expect(resolveModelId('claude-haiku-4-5', 'premium')).toBe('claude-haiku-4-5');
-    expect(resolveModelId('kimi-k2', 'premium')).toBe('kimi-k2');
-  });
-
-  it('falls back to default for unknown model ids (any role)', () => {
-    expect(resolveModelId('nonexistent-model', 'premium')).toBe('claude-haiku-4-5');
+  it('falls back to DEFAULT_MODEL for unknown model ids', () => {
+    expect(resolveModelId('nonexistent-model')).toBe(DEFAULT_MODEL);
+    expect(resolveModelId('')).toBe(DEFAULT_MODEL);
+    expect(resolveModelId('gpt-4')).toBe(DEFAULT_MODEL);
   });
 });
 
-// ── 5.2  Daily message limit ──────────────────────────────────────────────────
-describe('checkDailyLimit', () => {
-  const TODAY = '2026-04-13';
-
-  it('blocks free user at 20 messages', () => {
-    expect(checkDailyLimit(20, TODAY, TODAY, 'free').limited).toBe(true);
-    expect(checkDailyLimit(25, TODAY, TODAY, 'free').limited).toBe(true);
-  });
-
-  it('allows free user below the limit', () => {
-    expect(checkDailyLimit(0, TODAY, TODAY, 'free').limited).toBe(false);
-    expect(checkDailyLimit(19, TODAY, TODAY, 'free').limited).toBe(false);
-  });
-
-  it('never limits premium users', () => {
-    expect(checkDailyLimit(100, TODAY, TODAY, 'premium').limited).toBe(false);
-  });
-
-  it('resets counter when date has changed', () => {
-    const result = checkDailyLimit(20, '2026-04-12', TODAY, 'free');
-    expect(result.shouldReset).toBe(true);
-    expect(result.limited).toBe(false); // reset brings count to 0
-  });
-
-  it('does not reset when date is current', () => {
-    const result = checkDailyLimit(5, TODAY, TODAY, 'free');
-    expect(result.shouldReset).toBe(false);
-  });
-});
-
-// ── 5.4  Auth middleware — 401 without token ─────────────────────────────────
+// ── 5.2  Auth middleware — 401 without token ─────────────────────────────────
 describe('requireAuth — 401 enforcement', () => {
   it('GET /api/profile returns 401 when Authorization header is missing', async () => {
     const res = await profileRouter.request('http://localhost/');
@@ -67,19 +30,20 @@ describe('requireAuth — 401 enforcement', () => {
     expect(res.status).toBe(401);
   });
 
-  it('POST /api/chat returns 401 when Authorization header is missing', async () => {
+  it('POST /api/chat accepts requests without auth (optionalAuth)', async () => {
     const res = await chatRouter.request('http://localhost/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [] }),
     });
-    expect(res.status).toBe(401);
+    // optionalAuth allows unauthenticated requests — should not be 401
+    expect(res.status).not.toBe(401);
   });
 });
 
-// ── 5.3  AI config — system prompt extra ─────────────────────────────────────
+// ── 5.3  System prompt ───────────────────────────────────────────────────────
 describe('buildSystemPromptText', () => {
-  it('returns base prompt without extra', () => {
+  it('returns base prompt containing ODEPA and Lo Valledor', () => {
     const prompt = buildSystemPromptText();
     expect(prompt).toContain('ODEPA');
     expect(prompt).toContain('Lo Valledor');
@@ -90,9 +54,15 @@ describe('buildSystemPromptText', () => {
     expect(prompt).toContain('Responde siempre en bullet points');
   });
 
-  it('does not add extra section when undefined', () => {
+  it('is longer with extra than without', () => {
     const withExtra = buildSystemPromptText('extra text');
     const withoutExtra = buildSystemPromptText();
     expect(withExtra.length).toBeGreaterThan(withoutExtra.length);
+  });
+
+  it('ignores empty or whitespace-only extra', () => {
+    const withEmpty = buildSystemPromptText('   ');
+    const withoutExtra = buildSystemPromptText();
+    expect(withEmpty).toBe(withoutExtra);
   });
 });
