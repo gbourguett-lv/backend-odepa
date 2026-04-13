@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { supabase, TABLE } from '../lib/supabase.js';
-import { getLastSyncedDate, runBackfill, runWeeklySync, isSyncRunning } from '../scraper/sync.js';
+import { runBackfill, runWeeklySync, isSyncRunning } from '../scraper/sync.js';
 
 const syncRouter = new Hono();
 
