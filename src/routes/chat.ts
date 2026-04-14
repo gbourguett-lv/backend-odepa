@@ -4,6 +4,8 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
 import { groq } from '@ai-sdk/groq';
 import { createMinimax } from 'vercel-minimax-ai-provider';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { createCerebras } from '@ai-sdk/cerebras';
 import {
   streamText,
   stepCountIs,
@@ -20,6 +22,8 @@ import type { AuthVariables, AiConfig } from '../types.js';
 const chatRouter = new Hono<{ Variables: AuthVariables }>();
 
 const minimax = createMinimax({ apiKey: process.env.MINIMAX_API_KEY });
+const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+const cerebras = createCerebras({ apiKey: process.env.CEREBRAS_API_KEY });
 
 type ModelConfig = {
   model: () => LanguageModel;
@@ -34,7 +38,25 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     model: () => anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001'),
     label: 'Claude Haiku 4.5',
     provider: 'Anthropic',
-    description: 'Preciso, rápido en razonamiento estructurado',
+    description: 'Rápido y preciso para consultas de precios',
+  },
+  'claude-3.5-sonnet': {
+    model: () => openrouter('anthropic/claude-3.5-sonnet'),
+    label: 'Claude 3.5 Sonnet',
+    provider: 'OpenRouter',
+    description: 'Mayor precisión en razonamiento y uso de herramientas',
+  },
+  'deepseek-v3': {
+    model: () => openrouter('deepseek/deepseek-chat-v3-0324'),
+    label: 'DeepSeek V3',
+    provider: 'OpenRouter',
+    description: 'Excelente razonamiento, muy económico',
+  },
+  'qwen-2.5-72b': {
+    model: () => openrouter('qwen/qwen-2.5-72b-instruct'),
+    label: 'Qwen 2.5 72B',
+    provider: 'OpenRouter',
+    description: 'Sólido en español y razonamiento estructurado',
   },
   'gemini-2.5-flash': {
     model: () => google(process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'),
@@ -48,6 +70,18 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     provider: 'Groq',
     description: '128k contexto, código abierto',
     maxMessages: 10,
+  },
+  'cerebras-llama-70b': {
+    model: () => cerebras('llama-3.3-70b'),
+    label: 'Llama 3.3 70B (Cerebras)',
+    provider: 'Cerebras',
+    description: 'Inferencia ultrarrápida — respuestas en menos de 1 segundo',
+  },
+  'cerebras-llama-8b': {
+    model: () => cerebras('llama3.1-8b'),
+    label: 'Llama 3.1 8B (Cerebras)',
+    provider: 'Cerebras',
+    description: 'El más rápido del sistema, ideal para consultas directas',
   },
   'minimax-m2': {
     model: () => minimax(process.env.MINIMAX_MODEL ?? 'MiniMax-M2.5'),
