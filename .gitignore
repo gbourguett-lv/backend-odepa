@@ -45,3 +45,14 @@ yarn.lock
 
 # Agent tooling (local only)
 .atl/
+.agents/
+.kiro/
+.claude/
+skills-lock.json
+
+# Supabase CLI (local config — migrations belong in a separate repo)
+supabase/
+
+# Generated project context files (auto-regenerated per environment)
+QWEN.md
+CLAUDE.md

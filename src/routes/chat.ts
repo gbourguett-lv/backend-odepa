@@ -4,15 +4,26 @@ import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
 import { groq } from '@ai-sdk/groq';
 import { createMinimax } from 'vercel-minimax-ai-provider';
-import { streamText, stepCountIs, convertToModelMessages, type LanguageModel } from 'ai';
+import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import { createCerebras } from '@ai-sdk/cerebras';
+import {
+  streamText,
+  stepCountIs,
+  convertToModelMessages,
+  type LanguageModel,
+  type ErrorHandler,
+} from 'ai';
 import { tools } from '../agent/tools.js';
 import { supabase } from '../lib/supabase.js';
 import { optionalAuth } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rate-limit.js';
 import type { AuthVariables, AiConfig } from '../types.js';
 
 const chatRouter = new Hono<{ Variables: AuthVariables }>();
 
 const minimax = createMinimax({ apiKey: process.env.MINIMAX_API_KEY });
+const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+const cerebras = createCerebras({ apiKey: process.env.CEREBRAS_API_KEY });
 
 type ModelConfig = {
   model: () => LanguageModel;
@@ -27,7 +38,25 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     model: () => anthropic(process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5-20251001'),
     label: 'Claude Haiku 4.5',
     provider: 'Anthropic',
-    description: 'Preciso, rápido en razonamiento estructurado',
+    description: 'Rápido y preciso para consultas de precios',
+  },
+  'claude-3.5-sonnet': {
+    model: () => openrouter('anthropic/claude-3.5-sonnet'),
+    label: 'Claude 3.5 Sonnet',
+    provider: 'OpenRouter',
+    description: 'Mayor precisión en razonamiento y uso de herramientas',
+  },
+  'deepseek-v3': {
+    model: () => openrouter('deepseek/deepseek-chat-v3-0324'),
+    label: 'DeepSeek V3',
+    provider: 'OpenRouter',
+    description: 'Excelente razonamiento, muy económico',
+  },
+  'qwen-2.5-72b': {
+    model: () => openrouter('qwen/qwen-2.5-72b-instruct'),
+    label: 'Qwen 2.5 72B',
+    provider: 'OpenRouter',
+    description: 'Sólido en español y razonamiento estructurado',
   },
   'gemini-2.5-flash': {
     model: () => google(process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'),
@@ -41,6 +70,18 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     provider: 'Groq',
     description: '128k contexto, código abierto',
     maxMessages: 10,
+  },
+  'cerebras-llama-70b': {
+    model: () => cerebras('llama-3.3-70b'),
+    label: 'Llama 3.3 70B (Cerebras)',
+    provider: 'Cerebras',
+    description: 'Inferencia ultrarrápida — respuestas en menos de 1 segundo',
+  },
+  'cerebras-llama-8b': {
+    model: () => cerebras('llama3.1-8b'),
+    label: 'Llama 3.1 8B (Cerebras)',
+    provider: 'Cerebras',
+    description: 'El más rápido del sistema, ideal para consultas directas',
   },
   'minimax-m2': {
     model: () => minimax(process.env.MINIMAX_MODEL ?? 'MiniMax-M2.5'),
@@ -77,14 +118,17 @@ export function resolveModelId(requestedId: string): string {
  */
 export function buildSystemPromptText(systemPromptExtra?: string): string {
   const today = new Date().toISOString().slice(0, 10);
-  const base = `Eres un asistente especializado en precios mayoristas de frutas y hortalizas del Mercado Lo Valledor, basado en datos oficiales de ODEPA (Oficina de Estudios y Políticas Agrarias).
+  const base = `Eres un asistente especializado en precios mayoristas de frutas y hortalizas de Chile, basado en datos oficiales de ODEPA (Oficina de Estudios y Políticas Agrarias). Cubres los 12 mercados mayoristas del país.
 
 Fecha actual: ${today}. Los datos llegan hasta esta fecha. Cuando el usuario diga "hoy" o "ahora", usa ${today} como referencia.
 
 MERCADO POR DEFECTO — REGLA CRÍTICA:
 - A menos que el usuario indique explícitamente otro mercado, SIEMPRE consulta y presenta datos del Mercado Lo Valledor.
-- Si el usuario nombra otro mercado explícitamente, usa ese mercado para esa consulta.
-- Nunca mezcles datos de múltiples mercados sin que el usuario lo haya pedido.
+- Si el usuario nombra otro mercado explícitamente (ej: "Vega Central", "Temuco", "Concepción"), usa ese mercado para esa consulta.
+- Si el usuario pide comparar mercados, consulta cada uno por separado y presenta los resultados diferenciados.
+- Nunca mezcles datos de múltiples mercados en una misma tabla sin que el usuario lo haya pedido.
+
+MERCADOS DISPONIBLES: Lo Valledor (Santiago), Vega Central Mapocho (Santiago), Mapocho venta directa (Santiago), Vega Monumental (Concepción), Vega Modelo (Temuco), Macroferia Regional (Talca), Femacal (La Calera), Terminal La Palmera (La Serena), Solcoagro (Ovalle), Feria Lagunitas (Puerto Montt), Agro Chillán, Agrícola del Norte (Arica). Usa get_markets para obtener la lista completa.
 
 ALCANCE DEL ASISTENTE — REGLA CRÍTICA:
 - Solo puedes responder preguntas relacionadas con precios, productos y tendencias en mercados mayoristas.
@@ -95,10 +139,10 @@ INSTRUCCIONES OPERATIVAS:
 1. Cuando el usuario pregunte por precios, SIEMPRE usa las herramientas disponibles ANTES de responder.
 2. Después de recibir resultados de herramientas, SIEMPRE genera una respuesta de texto completa en español.
 3. NUNCA devuelvas una respuesta vacía después de usar una herramienta.
-4. Si los datos existen, resúmelos claramente. Si no, explica por qué.
+4. Si los datos existen, resúmelos claramente indicando el mercado y la fecha. Si no, explica por qué.
 
 Responde en español neutro, claro y directo.
-Indica siempre: "Datos: ODEPA · Mercado Lo Valledor" y la fecha del último registro.`;
+Indica siempre la fuente: "Datos: ODEPA · {nombre del mercado consultado}" y la fecha del último registro.`;
 
   if (systemPromptExtra?.trim()) {
     return `${base}\n\nINSTRUCCIONES ADICIONALES DEL USUARIO:\n${systemPromptExtra.trim()}`;
@@ -106,8 +150,85 @@ Indica siempre: "Datos: ODEPA · Mercado Lo Valledor" y la fecha del último reg
   return base;
 }
 
+// ── Error classification ──────────────────────────────────────────────────────
+
+type ErrorClass = 'tool' | 'llm' | 'network' | 'auth' | 'unknown';
+
+function classifyError(err: unknown): { cls: ErrorClass; message: string } {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    const name = err.name;
+
+    // Tool execution errors (from AI SDK tool calls)
+    if (name === 'ToolExecutionError' || msg.includes('tool')) {
+      return { cls: 'tool', message: err.message };
+    }
+
+    // LLM provider errors (rate limit, content filter, invalid request)
+    if (
+      msg.includes('rate limit') ||
+      msg.includes('content filter') ||
+      msg.includes('blocked') ||
+      msg.includes('overloaded') ||
+      msg.includes('too many tokens') ||
+      name.includes('AI') ||
+      name.includes('LanguageModel')
+    ) {
+      return { cls: 'llm', message: err.message };
+    }
+
+    // Network / connectivity errors
+    if (
+      msg.includes('fetch') ||
+      msg.includes('network') ||
+      msg.includes('econnrefused') ||
+      msg.includes('etimedout') ||
+      msg.includes('socket') ||
+      msg.includes('connection') ||
+      name === 'FetchError'
+    ) {
+      return { cls: 'network', message: err.message };
+    }
+
+    // Auth / permission errors
+    if (
+      msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
+      msg.includes('401') ||
+      msg.includes('403')
+    ) {
+      return { cls: 'auth', message: err.message };
+    }
+
+    return { cls: 'unknown', message: err.message };
+  }
+
+  return { cls: 'unknown', message: String(err) };
+}
+
+const errorHandler: ErrorHandler = (error) => {
+  const { cls, message } = classifyError(error);
+
+  switch (cls) {
+    case 'tool':
+      console.error('[chat][tool-error]', message);
+      break;
+    case 'llm':
+      console.error('[chat][llm-error]', message);
+      break;
+    case 'network':
+      console.error('[chat][network-error]', message);
+      break;
+    case 'auth':
+      console.error('[chat][auth-error]', message);
+      break;
+    default:
+      console.error('[chat][unknown-error]', message);
+  }
+};
+
 // ── Chat endpoint ─────────────────────────────────────────────────────────────
-chatRouter.post('/', optionalAuth, async (c) => {
+chatRouter.post('/', optionalAuth, rateLimit, async (c) => {
   const body = await c.req.json();
   const rawMessages: unknown[] = body.messages ?? [];
   const requestedModelId: string = body.modelId ?? DEFAULT_MODEL;
@@ -167,8 +288,8 @@ chatRouter.post('/', optionalAuth, async (c) => {
       messages as Parameters<typeof convertToModelMessages>[0]
     ),
     tools,
-    stopWhen: stepCountIs(5),
-    onError: (err) => console.error('[chat] error:', err),
+    stopWhen: stepCountIs(3),
+    onError: errorHandler,
     onFinish: async ({ text, response }) => {
       if (!threadId || !userId || !userId.length) return;
 
@@ -176,28 +297,32 @@ chatRouter.post('/', optionalAuth, async (c) => {
         (response.messages.findLast((m) => m.role === 'assistant') as { id?: string } | undefined)
           ?.id ?? crypto.randomUUID();
 
-      await supabase
-        .from('chat_messages')
-        .insert({
+      const { error: insertError } = await supabase.from('chat_messages').insert({
+        id: assistantId,
+        thread_id: threadId,
+        role: 'assistant',
+        content: {
           id: assistantId,
-          thread_id: threadId,
           role: 'assistant',
-          content: {
-            id: assistantId,
-            role: 'assistant',
-            content: text,
-            parts: [{ type: 'text', text }],
-          },
-        })
-        .then(({ error }) => {
-          if (error) console.error('[chat] save assistant msg:', error.message);
-        });
+          content: text,
+          parts: [{ type: 'text', text }],
+        },
+      });
 
-      await supabase
+      if (insertError) {
+        const { cls } = classifyError(insertError);
+        console.error(`[chat][db-save][${cls}]`, insertError.message);
+      }
+
+      const { error: updateError } = await supabase
         .from('chat_threads')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', threadId)
         .eq('user_id', userId);
+
+      if (updateError) {
+        console.error('[chat][thread-update]', updateError.message);
+      }
     },
   };
 

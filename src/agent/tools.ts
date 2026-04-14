@@ -1,5 +1,6 @@
 import { tool, jsonSchema } from 'ai';
 import { supabase, TABLE, T_MERCADOS, T_PRODUCTOS } from '../lib/supabase.js';
+import { cache } from '../lib/cache.js';
 
 const T_VARIEDADES = 'variedades' as const;
 
@@ -75,7 +76,7 @@ export const tools = {
       let query = supabase
         .from(TABLE)
         .select(
-          'fecha,producto,variedad_tipo,mercado,region,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion'
+          'fecha,producto,variedad_tipo,mercado,region,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion,volumen'
         )
         .ilike('producto', `%${producto}%`)
         .order('fecha', { ascending: false })
@@ -91,7 +92,7 @@ export const tools = {
         const variedades = await resolveGrupo(producto, grupo);
         if (!variedades) {
           return {
-            message: `No se encontró el grupo "${grupo}" para "${producto}". Usá get_varieties para ver los grupos disponibles.`,
+            message: `No se encontró el grupo "${grupo}" para "${producto}". Usa get_varieties para ver los grupos disponibles.`,
           };
         }
         query = query.in('variedad_tipo', variedades);
@@ -103,15 +104,29 @@ export const tools = {
       if (error) return { error: error.message };
       if (!data?.length) return { message: `No se encontraron registros para "${producto}"` };
 
+      // Group by mercado so AI knows which data belongs to which market
+      const byMercado: Record<string, typeof data> = {};
+      for (const r of data) {
+        const key = r.mercado ?? 'Desconocido';
+        if (!byMercado[key]) byMercado[key] = [];
+        byMercado[key].push(r);
+      }
+
+      const mercadosEnResultado = Object.keys(byMercado);
+
       return {
         total: data.length,
+        mercados: mercadosEnResultado,
         registros: data.map((r) => ({
           fecha: r.fecha,
+          mercado: r.mercado,
+          region: r.region,
           variedad: r.variedad_tipo ?? '-',
           min: r.precio_minimo,
           max: r.precio_maximo,
           prom: r.precio_promedio_ponderado,
           unidad: r.unidad_comercializacion,
+          volumen: r.volumen,
         })),
       };
     },
@@ -129,13 +144,25 @@ export const tools = {
       },
     }),
     execute: async ({ search }) => {
+      // Cache only when no search filter (full catalog)
+      if (!search) {
+        const cached = cache.get<{ products: unknown[]; total: number }>('catalog:products');
+        if (cached) return cached;
+      }
+
       let query = supabase.from(T_PRODUCTOS).select('nombre, subsector').order('nombre');
       if (search) query = query.ilike('nombre', `%${search}%`);
 
       const { data, error } = await query;
       if (error) return { error: error.message };
 
-      return { products: data, total: data?.length ?? 0 };
+      const result = { products: data, total: data?.length ?? 0 };
+
+      if (!search) {
+        cache.set('catalog:products', result);
+      }
+
+      return result;
     },
   }),
 
@@ -146,6 +173,9 @@ export const tools = {
       properties: {},
     }),
     execute: async () => {
+      const cached = cache.get<{ markets: unknown[]; total: number }>('catalog:markets');
+      if (cached) return cached;
+
       const { data, error } = await supabase
         .from(T_MERCADOS)
         .select('nombre, region')
@@ -154,7 +184,10 @@ export const tools = {
 
       if (error) return { error: error.message };
 
-      return { markets: data, total: data?.length ?? 0 };
+      const result = { markets: data, total: data?.length ?? 0 };
+      cache.set('catalog:markets', result);
+
+      return result;
     },
   }),
 
@@ -179,6 +212,10 @@ export const tools = {
       required: ['producto'],
     }),
     execute: async ({ producto, solo_con_grupo = false }) => {
+      const cacheKey = `catalog:varieties:${producto}:${solo_con_grupo ? 'grouped' : 'all'}`;
+      const cached = cache.get(cacheKey);
+      if (cached) return cached;
+
       let query = supabase
         .from(T_VARIEDADES)
         .select('variedad_tipo, grupo, registros')
@@ -206,7 +243,7 @@ export const tools = {
         }
       }
 
-      return {
+      const result = {
         producto,
         total_variedades: data.length,
         grupos: Object.entries(grouped).map(([grupo, variedades]) => ({
@@ -216,6 +253,9 @@ export const tools = {
         })),
         sin_grupo: sinGrupo.length > 0 ? sinGrupo : undefined,
       };
+
+      cache.set(cacheKey, result);
+      return result;
     },
   }),
 
@@ -294,7 +334,7 @@ export const tools = {
       let query = supabase
         .from(TABLE)
         .select(
-          'fecha,variedad_tipo,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion,volumen'
+          'fecha,variedad_tipo,mercado,precio_minimo,precio_maximo,precio_promedio_ponderado,unidad_comercializacion,volumen'
         )
         .ilike('producto', `%${producto}%`)
         .gte('fecha', desde)
@@ -366,8 +406,13 @@ export const tools = {
         };
       });
 
+      // Identify which markets are present in the results
+      const mercadosPresentes = [...new Set(data.map((r) => r.mercado).filter(Boolean))];
+
       return {
         producto,
+        mercados: mercadosPresentes,
+        mercado_filtro: mercado ?? 'Lo Valledor (por defecto)',
         grupo: grupo ?? null,
         periodo: `${desde} → ${hasta}`,
         registros_raw: data.length,
